@@ -6,6 +6,9 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
@@ -133,6 +136,9 @@ fn read_pid() -> Option<u32> {
         .and_then(|s| s.trim().parse::<u32>().ok())
 }
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 #[cfg(unix)]
 fn process_alive(pid: u32) -> bool {
     unsafe { libc::kill(pid as i32, 0) == 0 }
@@ -149,6 +155,9 @@ fn process_alive(pid: u32) -> bool {
     })
     .unwrap_or(false)
 }
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 #[cfg(unix)]
 fn kill_process(pid: u32) -> Result<(), String> {
