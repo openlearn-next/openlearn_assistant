@@ -46,7 +46,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential \
-            curl wget file libssl-dev libayatana-appindicator3-dev librsvg2-dev
+            curl wget file libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+            libfuse2
 
       - name: Fetch offline assets
         if: matrix.variant == 'offline'
@@ -59,22 +60,12 @@ jobs:
       - name: Build (online)
         if: matrix.variant == 'online'
         shell: bash
-        run: |
-          if [ "${{ matrix.platform }}" = "macos" ]; then
-            npm run tauri -- build --target universal-apple-darwin
-          else
-            npm run tauri -- build
-          fi
+        run: npm run tauri -- build
 
       - name: Build (offline)
         if: matrix.variant == 'offline'
         shell: bash
-        run: |
-          if [ "${{ matrix.platform }}" = "macos" ]; then
-            npm run tauri -- build --target universal-apple-darwin --features offline
-          else
-            npm run tauri -- build --features offline
-          fi
+        run: npm run tauri -- build --features offline
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
