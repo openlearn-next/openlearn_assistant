@@ -1,6 +1,6 @@
 [package]
 name = "openlearn-next-assistant"
-version = "0.1.14"
+version = "0.1.15"
 description = "OpenLearn-Next 启动 / 停止 GUI 助手（通过 npx 运行）"
 authors = ["OpenLearn Assistant"]
 edition = "2021"

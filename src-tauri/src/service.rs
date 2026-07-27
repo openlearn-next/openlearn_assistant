@@ -3,6 +3,7 @@ use crate::pkg;
 use crate::settings;
 use serde::Serialize;
 use std::fs;
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 #[cfg(unix)]
@@ -42,16 +43,13 @@ pub fn start_service() -> Result<(), String> {
 
     // Ensure package is cached locally (download + patch + install deps).
     let cache = pkg::ensure_package(&s.version, s.mirror_enabled)?;
-    let bin = cache.join("node_modules").join(".bin").join("openlearn-next");
-    if !bin.exists() {
-        return Err(format!("找不到可执行文件: {}", bin.display()));
-    }
+    let entry = resolve_bin_entry(&cache)?;
 
     let log = fs::File::create(settings::log_path()).map_err(|e| e.to_string())?;
     let log_err = log.try_clone().map_err(|e| e.to_string())?;
 
     let mut cmd = Command::new("node");
-    cmd.arg(&bin);
+    cmd.arg(&entry);
     cmd.arg("-p").arg(s.port.to_string());
     cmd.env("OPENLEARN_DB_PATH", &s.db_path);
     if !s.gemini_api_key.is_empty() {
@@ -106,6 +104,27 @@ pub fn get_logs(tail: u32) -> String {
         }
         Err(_) => String::new(),
     }
+}
+
+/// Read package.json bin field and resolve the entry script path.
+fn resolve_bin_entry(cache: &Path) -> Result<std::path::PathBuf, String> {
+    let pkg_json = cache.join("package.json");
+    let raw = fs::read_to_string(&pkg_json)
+        .map_err(|e| format!("读取 package.json 失败: {e}"))?;
+    let root: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("解析 package.json 失败: {e}"))?;
+
+    let bin_val = root["bin"].as_object().ok_or("package.json 缺少 bin 字段")?;
+    let script = bin_val["openlearn-next"]
+        .as_str()
+        .or_else(|| bin_val.values().next().and_then(|v| v.as_str()))
+        .ok_or("无法确定可执行入口")?;
+
+    let entry = cache.join(script);
+    if !entry.exists() {
+        return Err(format!("找不到可执行文件: {}", entry.display()));
+    }
+    Ok(entry)
 }
 
 fn read_pid() -> Option<u32> {

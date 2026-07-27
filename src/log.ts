@@ -3,6 +3,9 @@ import { getLogs } from "./api";
 let timer: number | undefined;
 
 function ansiToHtml(text: string): string {
+  // Strip OSC 8 hyperlink sequences.
+  text = text.replace(/\x1b\]8;[^\x07\x1b]*(\x07|\x1b\\)/g, "");
+
   const colorMap: Record<number, string> = {
     1: "font-weight:bold",
     2: "opacity:0.7",
@@ -75,7 +78,6 @@ function ansiToHtml(text: string): string {
 
 export function initLogPanel(container: HTMLElement) {
   container.innerHTML = `
-    <h2>日志</h2>
     <div class="log-actions">
       <button id="log-refresh" class="btn small">刷新</button>
       <button id="log-copy" class="btn small">复制</button>

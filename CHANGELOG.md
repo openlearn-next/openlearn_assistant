@@ -5,6 +5,18 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.15] - 2026-07-28
+
+### Changed
+- UI 全面紧凑化：6 张卡片精简为 4 区块，标题栏加运行状态指示灯，设置改为两行内联布局
+- 版本选择器移至操作栏，白底黑字，切换即时保存
+- 日志面板默认折叠，点击展开
+- 支持系统 `prefers-color-scheme` 浅色主题
+
+### Fixed
+- 修复 `start_service()` 因 `npm install --omit=dev` 不创建 `.bin` 符号链接导致找不到可执行文件
+- 修复日志面板 OSC 8 超链接转义序列显示为乱码
+
 ## [0.1.14] - 2026-07-27
 
 ### Changed
@@ -16,7 +28,7 @@
 - 镜像同时控制 `npm pack` 和 `npm install` 的 registry
 
 ### Removed
-- 不再支持 offline 变体（`feature = "offline"`），CI 构建矩阵从 8 个 job 减为 4 个
+- 不再支持 offline 变体，CI 构建矩阵从 8 个 job 减为 4 个
 - 移除安装/卸载/升级操作，改为「清除数据」按钮直接删除用户目录
 
 ## [0.1.5] - 2026-07-27
@@ -64,6 +76,7 @@
 - 实时日志面板
 - 在线版与离线版两种发布变体
 
+[0.1.15]: https://github.com/openlearn-next/openlearn_assistant/compare/v0.1.14...v0.1.15
 [0.1.14]: https://github.com/openlearn-next/openlearn_assistant/compare/v0.1.13...v0.1.14
 [0.1.5]: https://github.com/openlearn-next/openlearn_assistant/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/openlearn-next/openlearn_assistant/compare/v0.1.3...v0.1.4

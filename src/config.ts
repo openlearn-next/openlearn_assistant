@@ -10,35 +10,43 @@ let current: Settings = {
 
 export function renderSettings(container: HTMLElement, onSaved?: () => void) {
   container.innerHTML = `
-    <h2>设置</h2>
-    <label class="field">
-      <span>端口</span>
-      <input id="cfg-port" type="number" min="1" max="65535" />
-    </label>
-    <label class="field">
-      <span>数据库路径</span>
-      <input id="cfg-db" type="text" placeholder="~/openlearn-next/data.db" />
-    </label>
-    <button id="cfg-save" class="btn">保存设置</button>
-    <span id="cfg-msg" class="hint"></span>
+    <div class="cfg-row">
+      <label class="cfg-item">
+        <span>端口</span>
+        <input id="cfg-port" type="number" min="1" max="65535" />
+      </label>
+      <label class="cfg-item cfg-db">
+        <span>数据库</span>
+        <input id="cfg-db" type="text" placeholder="~/openlearn-next/data.db" />
+      </label>
+    </div>
+    <div class="cfg-row">
+      <label class="checkbox-row">
+        <input id="cfg-mirror" type="checkbox" checked />
+        <span>中国镜像</span>
+      </label>
+      <button id="cfg-save" class="btn small">保存</button>
+      <span id="cfg-msg" class="hint"></span>
+    </div>
   `;
 
   const port = container.querySelector<HTMLInputElement>("#cfg-port")!;
   const db = container.querySelector<HTMLInputElement>("#cfg-db")!;
   const msg = container.querySelector<HTMLSpanElement>("#cfg-msg")!;
-
   port.value = String(current.port);
   db.value = current.db_path;
 
   container.querySelector<HTMLButtonElement>("#cfg-save")!.addEventListener(
     "click",
     async () => {
+      const mirrorCb = container.querySelector<HTMLInputElement>("#cfg-mirror")!;
+      const select = document.querySelector<HTMLSelectElement>("#cfg-version")!;
       const next: Settings = {
         port: parseInt(port.value, 10) || 9000,
         db_path: db.value.trim(),
         gemini_api_key: "",
-        mirror_enabled: current.mirror_enabled,
-        version: current.version,
+        mirror_enabled: mirrorCb.checked,
+        version: select.value,
       };
       await saveSettings(next);
       current = next;
