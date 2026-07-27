@@ -4,6 +4,8 @@ use std::fs;
 use std::process::Command;
 #[cfg(feature = "offline")]
 use std::path::PathBuf;
+#[cfg(feature = "offline")]
+use std::env;
 
 /// Detect the best available package manager: pnpm handles `workspace:*`
 /// protocol that openlearn-next dependencies may contain; npm as fallback.
