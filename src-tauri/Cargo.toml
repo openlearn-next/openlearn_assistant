@@ -1,6 +1,6 @@
 [package]
 name = "openlearn-next-assistant"
-version = "0.1.12"
+version = "0.1.13"
 description = "OpenLearn-Next 安装 / 卸载 / 升级 / 启动 / 停止 GUI 助手"
 authors = ["OpenLearn Assistant"]
 edition = "2021"

@@ -6,7 +6,6 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-/// Detect the best available package manager.
 fn pkg_manager() -> &'static str {
     if Command::new("pnpm").arg("--version").output().is_ok_and(|o| o.status.success()) {
         return "pnpm";
@@ -27,6 +26,12 @@ fn pm_cmd(subcommand: &str) -> Command {
     }
     cmd.arg(subcommand);
     cmd
+}
+
+/// Persistent directory where we extract and install openlearn-next locally before
+/// linking globally. This avoids pnpm tarball-install issues.
+fn pkg_install_dir() -> PathBuf {
+    settings::app_dir().join("openlearn-next-package")
 }
 
 pub fn npm_global_bin() -> Option<String> {
@@ -54,24 +59,24 @@ pub fn installed_version() -> Option<String> {
 }
 
 pub fn install_pkg() -> Result<(), String> {
-    // Clean stale links from previous installs before installing fresh.
     let _ = run_pm_global("remove", &["openlearn-next"]);
     #[cfg(feature = "offline")]
     {
         let tgz = write_embedded_openlearn()?;
-        let repacked = extract_patch_repack(&tgz)?;
-        run_pm_install_tarball(&repacked)
+        let dir = extract_and_patch(&tgz, &pkg_install_dir())?;
+        install_deps_and_link(&dir)
     }
     #[cfg(not(feature = "offline"))]
     {
         let tgz = download_openlearn_tarball()?;
-        let repacked = extract_patch_repack(&tgz)?;
-        run_pm_install_tarball(&repacked)
+        let dir = extract_and_patch(&tgz, &pkg_install_dir())?;
+        install_deps_and_link(&dir)
     }
 }
 
 pub fn uninstall_pkg(keep_data: bool) -> Result<(), String> {
     run_pm_global("remove", &["openlearn-next"])?;
+    let _ = fs::remove_dir_all(pkg_install_dir());
     if !keep_data {
         let dir = settings::home_dir().join("openlearn-next");
         let _ = fs::remove_dir_all(&dir);
@@ -83,9 +88,10 @@ pub fn uninstall_pkg(keep_data: bool) -> Result<(), String> {
 pub fn upgrade_pkg() -> Result<(), String> {
     let _ = service::stop_service();
     let _ = run_pm_global("remove", &["openlearn-next"]);
+    let _ = fs::remove_dir_all(pkg_install_dir());
     let tgz = download_openlearn_tarball()?;
-    let repacked = extract_patch_repack(&tgz)?;
-    run_pm_install_tarball(&repacked)?;
+    let dir = extract_and_patch(&tgz, &pkg_install_dir())?;
+    install_deps_and_link(&dir)?;
     service::start_service()?;
     Ok(())
 }
@@ -108,44 +114,32 @@ fn download_openlearn_tarball() -> Result<PathBuf, String> {
     find_tarball(&tmpdir)
 }
 
-/// Extract tarball, patch workspace:* deps, repack to a persistent location.
-/// Returns the repacked tarball path (inside ~/.openlearn-next-gui/).
-fn extract_patch_repack(tarball: &PathBuf) -> Result<PathBuf, String> {
-    let workdir = env::temp_dir().join("openlearn-install");
-
-    let extract_dir = workdir.join("package");
-    let _ = fs::remove_dir_all(&extract_dir);
-    fs::create_dir_all(&extract_dir).map_err(|e| e.to_string())?;
+/// Extract tarball into dest, patch workspace:* deps.
+fn extract_and_patch(tarball: &PathBuf, dest: &PathBuf) -> Result<PathBuf, String> {
+    let _ = fs::remove_dir_all(dest);
+    fs::create_dir_all(dest).map_err(|e| e.to_string())?;
 
     let status = Command::new("tar")
-        .args(["-xzf", &tarball.to_string_lossy(), "-C", &extract_dir.to_string_lossy(), "--strip-components=1"])
+        .args(["-xzf", &tarball.to_string_lossy(), "-C", &dest.to_string_lossy(), "--strip-components=1"])
         .status()
         .map_err(|e| format!("解压失败: {e}"))?;
     if !status.success() {
         return Err(format!("解压退出码: {}", status.code().unwrap_or(-1)));
     }
 
-    let pkg_json_path = extract_dir.join("package.json");
-    let raw = fs::read_to_string(&pkg_json_path).map_err(|e| e.to_string())?;
-    let patched = resolve_workspace_deps(&raw)?;
-    fs::write(&pkg_json_path, patched).map_err(|e| e.to_string())?;
-
-    // Repack into persistent app data dir so the install source survives.
-    let repack_dir = settings::app_dir().join("repack");
-    let _ = fs::remove_dir_all(&repack_dir);
-    fs::create_dir_all(&repack_dir).map_err(|e| e.to_string())?;
-
-    let status = Command::new("npm")
-        .args(["pack", &extract_dir.to_string_lossy(), "--pack-destination"])
-        .arg(&repack_dir)
-        .status()
-        .map_err(|e| format!("repack 失败: {e}"))?;
-    if !status.success() {
-        return Err(format!("repack 退出码: {}", status.code().unwrap_or(-1)));
+    // Clean temp dir
+    if let Some(parent) = tarball.parent() {
+        if parent.starts_with(env::temp_dir()) {
+            let _ = fs::remove_dir_all(parent);
+        }
     }
 
-    let _ = fs::remove_dir_all(&extract_dir);
-    find_tarball(&repack_dir)
+    let pkg_json = dest.join("package.json");
+    let raw = fs::read_to_string(&pkg_json).map_err(|e| e.to_string())?;
+    let patched = resolve_workspace_deps(&raw)?;
+    fs::write(&pkg_json, patched).map_err(|e| e.to_string())?;
+
+    Ok(dest.clone())
 }
 
 fn find_tarball(dir: &PathBuf) -> Result<PathBuf, String> {
@@ -158,6 +152,35 @@ fn find_tarball(dir: &PathBuf) -> Result<PathBuf, String> {
         })
         .map(|e| e.path())
         .ok_or("找不到 openlearn-next tarball".into())
+}
+
+/// Run `pnpm install --prod` locally, then `pnpm link --global` to register
+/// as a global package with all dependencies resolved.
+fn install_deps_and_link(dir: &PathBuf) -> Result<(), String> {
+    let pm = pkg_manager();
+    let install_cmd = if pm == "pnpm" { "install" } else { "install" };
+    let flag = if pm == "pnpm" { "--prod" } else { "--omit=dev" };
+
+    let status = Command::new(pm)
+        .current_dir(dir)
+        .args([install_cmd, flag])
+        .status()
+        .map_err(|e| format!("安装依赖失败: {e}"))?;
+    if !status.success() {
+        return Err(format!("安装依赖退出码: {}", status.code().unwrap_or(-1)));
+    }
+
+    // Link globally
+    let status = Command::new(pm)
+        .current_dir(dir)
+        .args(["link", "--global"])
+        .status()
+        .map_err(|e| format!("全局链接失败: {e}"))?;
+    if !status.success() {
+        return Err(format!("全局链接退出码: {}", status.code().unwrap_or(-1)));
+    }
+
+    Ok(())
 }
 
 fn resolve_workspace_deps(json: &str) -> Result<String, String> {
@@ -191,19 +214,6 @@ fn lookup_npm_version(pkg: &str) -> Result<String, String> {
         }
     }
     Ok("*".to_string())
-}
-
-fn run_pm_install_tarball(tgz: &PathBuf) -> Result<(), String> {
-    let pm = pkg_manager();
-    let mut cmd = pm_cmd(if pm == "pnpm" { "add" } else { "install" });
-    cmd.arg("-g");
-    cmd.arg(tgz);
-    let status = cmd.status().map_err(|e| format!("安装失败: {e}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("安装退出码: {}", status.code().unwrap_or(-1)))
-    }
 }
 
 fn run_pm_global(subcommand: &str, args: &[&str]) -> Result<(), String> {
