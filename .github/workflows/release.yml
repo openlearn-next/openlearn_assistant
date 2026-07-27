@@ -52,7 +52,7 @@ jobs:
       - name: Fetch offline assets
         if: matrix.variant == 'offline'
         shell: bash
-        run: ./scripts/fetch-offline-assets.sh ${{ matrix.platform }} ${{ matrix.arch }}
+        run: bash ./scripts/fetch-offline-assets.sh ${{ matrix.platform }} ${{ matrix.arch }}
 
       - name: Install frontend dependencies
         run: npm install
