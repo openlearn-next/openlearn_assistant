@@ -6,8 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-/// Detect the best available package manager: pnpm handles `workspace:*`
-/// protocol that openlearn-next dependencies may contain; npm as fallback.
+/// Detect the best available package manager.
 fn pkg_manager() -> &'static str {
     if Command::new("pnpm").arg("--version").output().is_ok_and(|o| o.status.success()) {
         return "pnpm";
@@ -20,7 +19,6 @@ fn npm_user_prefix() -> String {
     home.join(".local").to_string_lossy().into_owned()
 }
 
-/// Build a Command pre-configured for the detected package manager.
 fn pm_cmd(subcommand: &str) -> Command {
     let pm = pkg_manager();
     let mut cmd = Command::new(pm);
@@ -31,7 +29,6 @@ fn pm_cmd(subcommand: &str) -> Command {
     cmd
 }
 
-/// Path of the global bin directory.
 pub fn npm_global_bin() -> Option<String> {
     let out = pm_cmd("bin").arg("-g").output().ok()?;
     if out.status.success() {
@@ -41,7 +38,6 @@ pub fn npm_global_bin() -> Option<String> {
     }
 }
 
-/// Currently installed `openlearn-next` version, if any.
 pub fn installed_version() -> Option<String> {
     let out = pm_cmd("ls").arg("-g").arg("openlearn-next").arg("--depth=0").output().ok()?;
     let text = String::from_utf8_lossy(&out.stdout);
@@ -58,16 +54,18 @@ pub fn installed_version() -> Option<String> {
 }
 
 pub fn install_pkg() -> Result<(), String> {
+    // Clean stale links from previous installs before installing fresh.
+    let _ = run_pm_global("remove", &["openlearn-next"]);
     #[cfg(feature = "offline")]
     {
         let tgz = write_embedded_openlearn()?;
-        let (_, repacked) = extract_patch_repack(&tgz)?;
+        let repacked = extract_patch_repack(&tgz)?;
         run_pm_install_tarball(&repacked)
     }
     #[cfg(not(feature = "offline"))]
     {
         let tgz = download_openlearn_tarball()?;
-        let (_, repacked) = extract_patch_repack(&tgz)?;
+        let repacked = extract_patch_repack(&tgz)?;
         run_pm_install_tarball(&repacked)
     }
 }
@@ -84,8 +82,9 @@ pub fn uninstall_pkg(keep_data: bool) -> Result<(), String> {
 
 pub fn upgrade_pkg() -> Result<(), String> {
     let _ = service::stop_service();
+    let _ = run_pm_global("remove", &["openlearn-next"]);
     let tgz = download_openlearn_tarball()?;
-    let (_, repacked) = extract_patch_repack(&tgz)?;
+    let repacked = extract_patch_repack(&tgz)?;
     run_pm_install_tarball(&repacked)?;
     service::start_service()?;
     Ok(())
@@ -109,13 +108,10 @@ fn download_openlearn_tarball() -> Result<PathBuf, String> {
     find_tarball(&tmpdir)
 }
 
-/// Extract tarball, patch workspace:* deps, repack into a clean tarball.
-/// Returns (extracted_dir, repacked_tarball_path).
-fn extract_patch_repack(tarball: &PathBuf) -> Result<(PathBuf, PathBuf), String> {
-    let workdir = tarball
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("/tmp"))
-        .to_path_buf();
+/// Extract tarball, patch workspace:* deps, repack to a persistent location.
+/// Returns the repacked tarball path (inside ~/.openlearn-next-gui/).
+fn extract_patch_repack(tarball: &PathBuf) -> Result<PathBuf, String> {
+    let workdir = env::temp_dir().join("openlearn-install");
 
     let extract_dir = workdir.join("package");
     let _ = fs::remove_dir_all(&extract_dir);
@@ -129,14 +125,13 @@ fn extract_patch_repack(tarball: &PathBuf) -> Result<(PathBuf, PathBuf), String>
         return Err(format!("解压退出码: {}", status.code().unwrap_or(-1)));
     }
 
-    // Patch package.json
     let pkg_json_path = extract_dir.join("package.json");
     let raw = fs::read_to_string(&pkg_json_path).map_err(|e| e.to_string())?;
     let patched = resolve_workspace_deps(&raw)?;
     fs::write(&pkg_json_path, patched).map_err(|e| e.to_string())?;
 
-    // Repack into a clean tarball
-    let repack_dir = workdir.join("repack");
+    // Repack into persistent app data dir so the install source survives.
+    let repack_dir = settings::app_dir().join("repack");
     let _ = fs::remove_dir_all(&repack_dir);
     fs::create_dir_all(&repack_dir).map_err(|e| e.to_string())?;
 
@@ -149,8 +144,8 @@ fn extract_patch_repack(tarball: &PathBuf) -> Result<(PathBuf, PathBuf), String>
         return Err(format!("repack 退出码: {}", status.code().unwrap_or(-1)));
     }
 
-    let repacked_tgz = find_tarball(&repack_dir)?;
-    Ok((extract_dir, repacked_tgz))
+    let _ = fs::remove_dir_all(&extract_dir);
+    find_tarball(&repack_dir)
 }
 
 fn find_tarball(dir: &PathBuf) -> Result<PathBuf, String> {
@@ -165,7 +160,6 @@ fn find_tarball(dir: &PathBuf) -> Result<PathBuf, String> {
         .ok_or("找不到 openlearn-next tarball".into())
 }
 
-/// Replace all `workspace:*` dependency values with actual versions from npm.
 fn resolve_workspace_deps(json: &str) -> Result<String, String> {
     let mut root: Value = serde_json::from_str(json).map_err(|e| format!("解析 package.json 失败: {e}"))?;
 
@@ -185,7 +179,6 @@ fn resolve_workspace_deps(json: &str) -> Result<String, String> {
     serde_json::to_string_pretty(&root).map_err(|e| format!("序列化 package.json 失败: {e}"))
 }
 
-/// Look up the latest version of a package on npm.
 fn lookup_npm_version(pkg: &str) -> Result<String, String> {
     let out = Command::new("npm")
         .args(["view", pkg, "version"])
@@ -200,7 +193,6 @@ fn lookup_npm_version(pkg: &str) -> Result<String, String> {
     Ok("*".to_string())
 }
 
-/// Install from a tarball (picks up all dependencies).
 fn run_pm_install_tarball(tgz: &PathBuf) -> Result<(), String> {
     let pm = pkg_manager();
     let mut cmd = pm_cmd(if pm == "pnpm" { "add" } else { "install" });
