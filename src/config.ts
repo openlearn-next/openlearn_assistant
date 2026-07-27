@@ -2,7 +2,7 @@ import { loadSettings, saveSettings, type Settings } from "./api";
 
 let current: Settings = { port: 9000, db_path: "", gemini_api_key: "" };
 
-export function renderSettings(container: HTMLElement) {
+export function renderSettings(container: HTMLElement, onSaved?: () => void) {
   container.innerHTML = `
     <h2>设置</h2>
     <label class="field">
@@ -34,6 +34,7 @@ export function renderSettings(container: HTMLElement) {
       await saveSettings(next);
       current = next;
       msg.textContent = "已保存";
+      onSaved?.();
       setTimeout(() => (msg.textContent = ""), 2000);
     }
   );

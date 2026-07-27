@@ -162,7 +162,7 @@ el.btnStop.addEventListener("click", () => run("停止", stopService));
 
 async function main() {
   await initSettings();
-  renderSettings(document.querySelector<HTMLElement>("#settings")!);
+  renderSettings(document.querySelector<HTMLElement>("#settings")!, refresh);
   initLogPanel(
     document.querySelector<HTMLElement>("#log-body")!,
     document.querySelector<HTMLElement>("#log-refresh")!
