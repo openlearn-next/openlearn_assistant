@@ -1,6 +1,12 @@
 import { loadSettings, saveSettings, type Settings } from "./api";
 
-let current: Settings = { port: 9000, db_path: "", gemini_api_key: "" };
+let current: Settings = {
+  port: 9000,
+  db_path: "",
+  gemini_api_key: "",
+  mirror_enabled: true,
+  version: "latest",
+};
 
 export function renderSettings(container: HTMLElement, onSaved?: () => void) {
   container.innerHTML = `
@@ -31,6 +37,8 @@ export function renderSettings(container: HTMLElement, onSaved?: () => void) {
         port: parseInt(port.value, 10) || 9000,
         db_path: db.value.trim(),
         gemini_api_key: "",
+        mirror_enabled: current.mirror_enabled,
+        version: current.version,
       };
       await saveSettings(next);
       current = next;

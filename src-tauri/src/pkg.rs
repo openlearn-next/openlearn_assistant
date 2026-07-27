@@ -1,4 +1,3 @@
-use crate::service;
 use crate::settings;
 use serde_json::Value;
 use std::env;
@@ -6,140 +5,136 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-fn pkg_manager() -> &'static str {
-    if Command::new("pnpm").arg("--version").output().is_ok_and(|o| o.status.success()) {
-        return "pnpm";
-    }
-    "npm"
+/// Delete user data (~/openlearn-next) and logs.
+pub fn clean_data() -> Result<(), String> {
+    let dir = settings::home_dir().join("openlearn-next");
+    let _ = fs::remove_dir_all(&dir);
+    let _ = fs::remove_file(settings::log_path());
+    let _ = fs::remove_file(settings::pid_path());
+    Ok(())
 }
 
-fn npm_user_prefix() -> String {
-    let home = settings::home_dir();
-    home.join(".local").to_string_lossy().into_owned()
-}
-
-fn pm_cmd(subcommand: &str) -> Command {
-    let pm = pkg_manager();
-    let mut cmd = Command::new(pm);
-    if pm == "npm" {
-        cmd.arg("--prefix").arg(npm_user_prefix());
-    }
-    cmd.arg(subcommand);
-    cmd
-}
-
-/// Persistent directory where we extract and install openlearn-next locally before
-/// linking globally. This avoids pnpm tarball-install issues.
-fn pkg_install_dir() -> PathBuf {
-    settings::app_dir().join("openlearn-next-package")
-}
-
-pub fn npm_global_bin() -> Option<String> {
-    let out = pm_cmd("bin").arg("-g").output().ok()?;
+/// Query the latest openlearn-next version from the npm registry.
+pub fn latest_version() -> Option<String> {
+    let out = Command::new("npm")
+        .args(["view", "openlearn-next", "version"])
+        .output()
+        .ok()?;
     if out.status.success() {
-        Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
-    } else {
-        None
-    }
-}
-
-pub fn installed_version() -> Option<String> {
-    let out = pm_cmd("ls").arg("-g").arg("openlearn-next").arg("--depth=0").output().ok()?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    for line in text.lines() {
-        if let Some(idx) = line.find("openlearn-next@") {
-            let rest = &line[idx + "openlearn-next@".len()..];
-            let ver = rest.trim().split_whitespace().next().unwrap_or("");
-            if !ver.is_empty() {
-                return Some(ver.to_string());
-            }
+        let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !ver.is_empty() {
+            return Some(ver);
         }
     }
     None
 }
 
-pub fn install_pkg() -> Result<(), String> {
-    let _ = run_pm_global("remove", &["openlearn-next"]);
-    #[cfg(feature = "offline")]
-    {
-        let tgz = write_embedded_openlearn()?;
-        let dir = extract_and_patch(&tgz, &pkg_install_dir())?;
-        install_deps_and_link(&dir)
+/// Fetch version list from npm registry, returning the most recent entries.
+/// `offset` skips the N most recent versions; `limit` caps the returned count.
+pub fn list_versions(offset: usize, limit: usize) -> Result<Vec<String>, String> {
+    let out = Command::new("npm")
+        .args(["view", "openlearn-next", "versions", "--json"])
+        .output()
+        .map_err(|e| format!("npm view 失败: {e}"))?;
+    if !out.status.success() {
+        return Err("npm view 退出码非零".into());
     }
-    #[cfg(not(feature = "offline"))]
-    {
-        let tgz = download_openlearn_tarball()?;
-        let dir = extract_and_patch(&tgz, &pkg_install_dir())?;
-        install_deps_and_link(&dir)
-    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut versions: Vec<String> = serde_json::from_str(&text)
+        .map_err(|e| format!("解析版本列表失败: {e}"))?;
+    // npm returns versions in chronological order; reverse for newest-first.
+    versions.reverse();
+    let end = (offset + limit).min(versions.len());
+    Ok(versions[offset.min(versions.len())..end].to_vec())
 }
 
-pub fn uninstall_pkg(keep_data: bool) -> Result<(), String> {
-    run_pm_global("remove", &["openlearn-next"])?;
-    let _ = fs::remove_dir_all(pkg_install_dir());
-    if !keep_data {
-        let dir = settings::home_dir().join("openlearn-next");
-        let _ = fs::remove_dir_all(&dir);
-        let _ = fs::remove_file(settings::log_path());
+/// Cached package directory for a given version.
+fn pkg_cache_dir(version: &str) -> PathBuf {
+    settings::app_dir().join("pkg").join(version)
+}
+
+/// Ensure the openlearn-next package for `version` is downloaded, patched,
+/// and its dependencies installed under the local cache. Returns the cache
+/// directory path so the caller can invoke the binary directly.
+pub fn ensure_package(version: &str, mirror: bool) -> Result<PathBuf, String> {
+    let cache = pkg_cache_dir(version);
+    if cache.join("node_modules").exists() {
+        return Ok(cache);
     }
-    Ok(())
-}
 
-pub fn upgrade_pkg() -> Result<(), String> {
-    let _ = service::stop_service();
-    let _ = run_pm_global("remove", &["openlearn-next"]);
-    let _ = fs::remove_dir_all(pkg_install_dir());
-    let tgz = download_openlearn_tarball()?;
-    let dir = extract_and_patch(&tgz, &pkg_install_dir())?;
-    install_deps_and_link(&dir)?;
-    service::start_service()?;
-    Ok(())
-}
+    // Clean any partial state
+    let _ = fs::remove_dir_all(&cache);
+    fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
 
-/// Download openlearn-next tarball from npm registry.
-fn download_openlearn_tarball() -> Result<PathBuf, String> {
-    let tmpdir = env::temp_dir().join("openlearn-install");
+    let registry_flag = if mirror {
+        vec!["--registry=https://registry.npmmirror.com".to_string()]
+    } else {
+        vec![]
+    };
+
+    // 1. npm pack to tempdir
+    let tmpdir = env::temp_dir().join(format!("openlearn-pkg-{}", version));
     let _ = fs::remove_dir_all(&tmpdir);
     fs::create_dir_all(&tmpdir).map_err(|e| e.to_string())?;
 
-    let status = Command::new("npm")
-        .args(["pack", "openlearn-next", "--pack-destination"])
+    let pkg_spec = if version == "latest" || version.is_empty() {
+        "openlearn-next".to_string()
+    } else {
+        format!("openlearn-next@{}", version)
+    };
+
+    let mut pack_cmd = Command::new("npm");
+    for flag in &registry_flag {
+        pack_cmd.arg(flag);
+    }
+    let status = pack_cmd
+        .args(["pack", &pkg_spec, "--pack-destination"])
         .arg(&tmpdir)
         .status()
         .map_err(|e| format!("npm pack 失败: {e}"))?;
     if !status.success() {
+        let _ = fs::remove_dir_all(&tmpdir);
         return Err(format!("npm pack 退出码: {}", status.code().unwrap_or(-1)));
     }
 
-    find_tarball(&tmpdir)
-}
+    // 2. Find tarball
+    let tgz = find_tarball(&tmpdir)?;
 
-/// Extract tarball into dest, patch workspace:* deps.
-fn extract_and_patch(tarball: &PathBuf, dest: &PathBuf) -> Result<PathBuf, String> {
-    let _ = fs::remove_dir_all(dest);
-    fs::create_dir_all(dest).map_err(|e| e.to_string())?;
-
+    // 3. Extract to cache
     let status = Command::new("tar")
-        .args(["-xzf", &tarball.to_string_lossy(), "-C", &dest.to_string_lossy(), "--strip-components=1"])
+        .args(["-xzf", &tgz.to_string_lossy(), "-C", &cache.to_string_lossy(), "--strip-components=1"])
         .status()
         .map_err(|e| format!("解压失败: {e}"))?;
     if !status.success() {
+        let _ = fs::remove_dir_all(&cache);
         return Err(format!("解压退出码: {}", status.code().unwrap_or(-1)));
     }
 
-    // Clean temp dir
-    if let Some(parent) = tarball.parent() {
-        if parent.starts_with(env::temp_dir()) {
-            let _ = fs::remove_dir_all(parent);
-        }
-    }
+    // Clean tempdir
+    let _ = fs::remove_dir_all(&tmpdir);
 
-    let pkg_json = dest.join("package.json");
+    // 4. Patch workspace:* deps
+    let pkg_json = cache.join("package.json");
     let raw = fs::read_to_string(&pkg_json).map_err(|e| e.to_string())?;
     let patched = resolve_workspace_deps(&raw)?;
     fs::write(&pkg_json, patched).map_err(|e| e.to_string())?;
 
-    Ok(dest.clone())
+    // 5. npm install --omit=dev
+    let mut install_cmd = Command::new("npm");
+    for flag in &registry_flag {
+        install_cmd.arg(flag);
+    }
+    let status = install_cmd
+        .current_dir(&cache)
+        .args(["install", "--omit=dev"])
+        .status()
+        .map_err(|e| format!("npm install 失败: {e}"))?;
+    if !status.success() {
+        let _ = fs::remove_dir_all(&cache);
+        return Err(format!("npm install 退出码: {}", status.code().unwrap_or(-1)));
+    }
+
+    Ok(cache)
 }
 
 fn find_tarball(dir: &PathBuf) -> Result<PathBuf, String> {
@@ -152,35 +147,6 @@ fn find_tarball(dir: &PathBuf) -> Result<PathBuf, String> {
         })
         .map(|e| e.path())
         .ok_or("找不到 openlearn-next tarball".into())
-}
-
-/// Run `pnpm install --prod` locally, then `pnpm link --global` to register
-/// as a global package with all dependencies resolved.
-fn install_deps_and_link(dir: &PathBuf) -> Result<(), String> {
-    let pm = pkg_manager();
-    let install_cmd = if pm == "pnpm" { "install" } else { "install" };
-    let flag = if pm == "pnpm" { "--prod" } else { "--omit=dev" };
-
-    let status = Command::new(pm)
-        .current_dir(dir)
-        .args([install_cmd, flag])
-        .status()
-        .map_err(|e| format!("安装依赖失败: {e}"))?;
-    if !status.success() {
-        return Err(format!("安装依赖退出码: {}", status.code().unwrap_or(-1)));
-    }
-
-    // Link globally
-    let status = Command::new(pm)
-        .current_dir(dir)
-        .args(["link", "--global"])
-        .status()
-        .map_err(|e| format!("全局链接失败: {e}"))?;
-    if !status.success() {
-        return Err(format!("全局链接退出码: {}", status.code().unwrap_or(-1)));
-    }
-
-    Ok(())
 }
 
 fn resolve_workspace_deps(json: &str) -> Result<String, String> {
@@ -214,23 +180,4 @@ fn lookup_npm_version(pkg: &str) -> Result<String, String> {
         }
     }
     Ok("*".to_string())
-}
-
-fn run_pm_global(subcommand: &str, args: &[&str]) -> Result<(), String> {
-    let mut cmd = pm_cmd(subcommand);
-    cmd.arg("-g").args(args);
-    let status = cmd.status().map_err(|e| format!("{subcommand} 失败: {e}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("{subcommand} 退出码: {}", status.code().unwrap_or(-1)))
-    }
-}
-
-#[cfg(feature = "offline")]
-fn write_embedded_openlearn() -> Result<PathBuf, String> {
-    let bytes = include_bytes!("../resources/openlearn-next.tgz");
-    let tmp = env::temp_dir().join("openlearn-next-offline.tgz");
-    fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
-    Ok(tmp)
 }

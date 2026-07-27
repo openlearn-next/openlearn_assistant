@@ -12,9 +12,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::detect_node,
             commands::provision_node,
-            commands::install_pkg,
-            commands::uninstall_pkg,
-            commands::upgrade_pkg,
+            commands::clean_data,
+            commands::list_versions,
             commands::start_service,
             commands::stop_service,
             commands::status,

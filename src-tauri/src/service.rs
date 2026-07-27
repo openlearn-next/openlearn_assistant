@@ -3,7 +3,6 @@ use crate::pkg;
 use crate::settings;
 use serde::Serialize;
 use std::fs;
-use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 #[cfg(unix)]
@@ -23,7 +22,7 @@ pub fn status() -> Status {
     let s = settings::load_settings();
     let running = is_running();
     let pid = read_pid();
-    let version = pkg::installed_version();
+    let version = pkg::latest_version();
     let node_ok = node::detect_node().meets_requirement;
     Status {
         running,
@@ -40,11 +39,19 @@ pub fn start_service() -> Result<(), String> {
     }
     let s = settings::load_settings();
     fs::create_dir_all(settings::app_dir()).map_err(|e| e.to_string())?;
+
+    // Ensure package is cached locally (download + patch + install deps).
+    let cache = pkg::ensure_package(&s.version, s.mirror_enabled)?;
+    let bin = cache.join("node_modules").join(".bin").join("openlearn-next");
+    if !bin.exists() {
+        return Err(format!("找不到可执行文件: {}", bin.display()));
+    }
+
     let log = fs::File::create(settings::log_path()).map_err(|e| e.to_string())?;
     let log_err = log.try_clone().map_err(|e| e.to_string())?;
 
-    let exe = resolve_exe()?;
-    let mut cmd = Command::new(&exe);
+    let mut cmd = Command::new("node");
+    cmd.arg(&bin);
     cmd.arg("-p").arg(s.port.to_string());
     cmd.env("OPENLEARN_DB_PATH", &s.db_path);
     if !s.gemini_api_key.is_empty() {
@@ -101,24 +108,6 @@ pub fn get_logs(tail: u32) -> String {
     }
 }
 
-fn resolve_exe() -> Result<String, String> {
-    if let Some(bin) = pkg::npm_global_bin() {
-        let dir = PathBuf::from(&bin);
-        #[cfg(windows)]
-        {
-            let cmd_exe = dir.join("openlearn-next.cmd");
-            if cmd_exe.exists() {
-                return Ok(cmd_exe.to_string_lossy().into_owned());
-            }
-        }
-        let shim = dir.join("openlearn-next");
-        if shim.exists() {
-            return Ok(shim.to_string_lossy().into_owned());
-        }
-    }
-    Ok("openlearn-next".into())
-}
-
 fn read_pid() -> Option<u32> {
     fs::read_to_string(settings::pid_path())
         .ok()
@@ -165,7 +154,7 @@ fn kill_process(pid: u32) -> Result<(), String> {
 
 fn health_check(port: u16) {
     let url = format!("http://127.0.0.1:{port}/");
-    for _ in 0..40 {
+    for _ in 0..120 {
         if let Ok(resp) = reqwest::blocking::get(&url) {
             if resp.status().is_success() {
                 return;

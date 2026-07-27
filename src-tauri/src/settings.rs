@@ -7,6 +7,20 @@ pub struct Settings {
     pub port: u16,
     pub db_path: String,
     pub gemini_api_key: String,
+    /// Use npmmirror.com registry for npx downloads.
+    #[serde(default = "default_mirror")]
+    pub mirror_enabled: bool,
+    /// Specific version tag or "latest".
+    #[serde(default = "default_version")]
+    pub version: String,
+}
+
+fn default_mirror() -> bool {
+    true
+}
+
+fn default_version() -> String {
+    "latest".to_string()
 }
 
 impl Default for Settings {
@@ -15,6 +29,8 @@ impl Default for Settings {
             port: 9000,
             db_path: default_db_path(),
             gemini_api_key: String::new(),
+            mirror_enabled: default_mirror(),
+            version: default_version(),
         }
     }
 }

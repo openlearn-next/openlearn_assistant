@@ -16,14 +16,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-24.04,     platform: linux,   arch: x86_64,  variant: online }
-          - { os: ubuntu-24.04,     platform: linux,   arch: x86_64,  variant: offline }
-          - { os: ubuntu-24.04-arm, platform: linux,   arch: aarch64, variant: online }
-          - { os: ubuntu-24.04-arm, platform: linux,   arch: aarch64, variant: offline }
-          - { os: macos-14,         platform: macos,   arch: aarch64, variant: online }
-          - { os: macos-14,         platform: macos,   arch: aarch64, variant: offline }
-          - { os: windows-2022,     platform: windows, arch: x86_64,  variant: online }
-          - { os: windows-2022,     platform: windows, arch: x86_64,  variant: offline }
+          - { os: ubuntu-24.04,     platform: linux,   arch: x86_64 }
+          - { os: ubuntu-24.04-arm, platform: linux,   arch: aarch64 }
+          - { os: macos-14,         platform: macos,   arch: aarch64 }
+          - { os: windows-2022,     platform: windows, arch: x86_64 }
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -49,28 +45,17 @@ jobs:
             curl wget file libssl-dev libayatana-appindicator3-dev librsvg2-dev \
             libfuse2
 
-      - name: Fetch offline assets
-        if: matrix.variant == 'offline'
-        shell: bash
-        run: bash ./scripts/fetch-offline-assets.sh ${{ matrix.platform }} ${{ matrix.arch }}
-
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Build (online)
-        if: matrix.variant == 'online'
+      - name: Build
         shell: bash
         run: npm run tauri -- build
-
-      - name: Build (offline)
-        if: matrix.variant == 'offline'
-        shell: bash
-        run: npm run tauri -- build --features offline
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: assistant-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.variant }}
+          name: assistant-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
             src-tauri/target/release/bundle/**/*
           if-no-files-found: ignore

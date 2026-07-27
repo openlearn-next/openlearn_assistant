@@ -3,9 +3,8 @@ import {
   detectNode,
   getStatus,
   provisionNode,
-  installPkg,
-  uninstallPkg,
-  upgradePkg,
+  cleanData,
+  listVersions,
   startService,
   stopService,
   type NodeInfo,
@@ -19,30 +18,42 @@ const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
   <header class="topbar">
     <h1>OpenLearn-Next 助手</h1>
-    <span class="sub">安装 · 卸载 · 升级 · 启动 · 停止</span>
+    <span class="sub">Node 配置 · 启动 · 停止</span>
   </header>
 
   <section class="card" id="status-card">
     <div class="row"><span class="k">Node.js</span><span id="st-node" class="v">检测中…</span></div>
-    <div class="row"><span class="k">openlearn-next</span><span id="st-pkg" class="v">检测中…</span></div>
+    <div class="row"><span class="k">远端版本</span><span id="st-pkg" class="v">检测中…</span></div>
     <div class="row"><span class="k">运行状态</span><span id="st-run" class="v">检测中…</span></div>
     <div class="row"><span class="k">访问地址</span><span id="st-url" class="v">—</span></div>
   </section>
 
   <section class="card actions">
     <button id="btn-node" class="btn">安装 Node 22</button>
-    <button id="btn-install" class="btn primary">安装</button>
-    <button id="btn-uninstall" class="btn">卸载</button>
-    <button id="btn-upgrade" class="btn">升级</button>
     <button id="btn-start" class="btn primary">启动</button>
     <button id="btn-stop" class="btn danger">停止</button>
+    <button id="btn-clean" class="btn">清除数据</button>
     <a id="btn-open" class="btn ghost" target="_blank" rel="noreferrer">打开</a>
   </section>
 
   <section class="card" id="settings"></section>
 
+  <section class="card" id="runtime-card">
+    <h2>运行时</h2>
+    <label class="field checkbox-row">
+      <input id="cfg-mirror" type="checkbox" checked />
+      <span>使用中国镜像 (registry.npmmirror.com)</span>
+    </label>
+    <div class="field">
+      <label for="cfg-version">版本</label>
+      <select id="cfg-version"></select>
+      <button id="cfg-more-versions" class="btn small" style="margin-top:4px">更多…</button>
+    </div>
+    <button id="cfg-runtime-save" class="btn" style="margin-top:8px">保存运行时设置</button>
+    <span id="cfg-runtime-msg" class="hint"></span>
+  </section>
+
   <section class="card">
-    
     <div id="log-body"></div>
   </section>
 
@@ -55,11 +66,9 @@ const el = {
   run: document.querySelector<HTMLSpanElement>("#st-run")!,
   url: document.querySelector<HTMLSpanElement>("#st-url")!,
   btnNode: document.querySelector<HTMLButtonElement>("#btn-node")!,
-  btnInstall: document.querySelector<HTMLButtonElement>("#btn-install")!,
-  btnUninstall: document.querySelector<HTMLButtonElement>("#btn-uninstall")!,
-  btnUpgrade: document.querySelector<HTMLButtonElement>("#btn-upgrade")!,
   btnStart: document.querySelector<HTMLButtonElement>("#btn-start")!,
   btnStop: document.querySelector<HTMLButtonElement>("#btn-stop")!,
+  btnClean: document.querySelector<HTMLButtonElement>("#btn-clean")!,
   btnOpen: document.querySelector<HTMLAnchorElement>("#btn-open")!,
   toast: document.querySelector<HTMLDivElement>("#toast")!,
 };
@@ -89,26 +98,19 @@ async function run(label: string, fn: () => Promise<void>) {
 }
 
 function setButtonsDisabled(d: boolean) {
-  [
-    el.btnNode,
-    el.btnInstall,
-    el.btnUninstall,
-    el.btnUpgrade,
-    el.btnStart,
-    el.btnStop,
-  ].forEach((b) => (b.disabled = d));
+  [el.btnNode, el.btnStart, el.btnStop, el.btnClean].forEach(
+    (b) => (b.disabled = d)
+  );
 }
 
 function updateUI(node: NodeInfo, st: Status) {
-  const installed = !!st.version;
-
   el.node.textContent = node.installed
     ? `${node.version}${node.meets_requirement ? " ✓" : " ✗ (<22)"}`
     : "未安装";
   el.node.className = `v ${node.meets_requirement ? "ok" : "bad"}`;
 
-  el.pkg.textContent = installed ? `已安装 ${st.version}` : "未安装";
-  el.pkg.className = `v ${installed ? "ok" : ""}`;
+  el.pkg.textContent = st.version ?? "获取失败";
+  el.pkg.className = "v";
 
   el.run.textContent = st.running
     ? `运行中 (PID ${st.pid ?? "?"})`
@@ -123,15 +125,10 @@ function updateUI(node: NodeInfo, st: Status) {
   el.btnOpen.href = url;
   el.btnOpen.style.display = st.running ? "" : "none";
 
-  // Button visibility / enabled state
   el.btnNode.style.display = node.meets_requirement ? "none" : "";
-  el.btnInstall.disabled = !node.meets_requirement || installed;
-  el.btnUninstall.disabled = !installed;
-  el.btnUpgrade.disabled = !installed;
-  el.btnStart.disabled = !installed || st.running;
+  el.btnStart.disabled = st.running;
   el.btnStop.disabled = !st.running;
 }
-
 
 async function refresh() {
   try {
@@ -145,23 +142,85 @@ async function refresh() {
 el.btnNode.addEventListener("click", () =>
   run("安装 Node 22", provisionNode)
 );
-el.btnInstall.addEventListener("click", () =>
-  run("安装", installPkg)
-);
-el.btnUninstall.addEventListener("click", async () => {
-  const keep = confirm("是否保留用户数据（数据库与上传文件）？\n确定 = 保留，取消 = 彻底删除");
-  await run("卸载", () => uninstallPkg(keep));
-});
-el.btnUpgrade.addEventListener("click", () => run("升级", upgradePkg));
 el.btnStart.addEventListener("click", () => run("启动", startService));
 el.btnStop.addEventListener("click", () => run("停止", stopService));
+el.btnClean.addEventListener("click", async () => {
+  if (!confirm("将删除所有用户数据（数据库、上传文件、日志），确定？")) return;
+  await run("清除数据", cleanData);
+});
+
+// --- Runtime settings: mirror toggle + version selector ---
+
+let runtimeOffset = 0;
+const PAGE_SIZE = 10;
+
+async function appendVersions() {
+  const select = document.querySelector<HTMLSelectElement>("#cfg-version")!;
+  const moreBtn = document.querySelector<HTMLButtonElement>("#cfg-more-versions")!;
+  const currentVal = select.value;
+
+  try {
+    const vers = await listVersions(runtimeOffset, PAGE_SIZE);
+    if (runtimeOffset === 0) {
+      // First page: include "latest" option
+      const opt = document.createElement("option");
+      opt.value = "latest";
+      opt.textContent = "latest";
+      select.appendChild(opt);
+    }
+    for (const v of vers) {
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.textContent = v;
+      select.appendChild(opt);
+    }
+    runtimeOffset += vers.length;
+
+    if (vers.length < PAGE_SIZE) {
+      moreBtn.style.display = "none";
+    }
+
+    // Restore selection
+    select.value = currentVal;
+  } catch (e) {
+    moreBtn.textContent = "加载失败";
+    setTimeout(() => (moreBtn.textContent = "更多…"), 2000);
+  }
+}
+
+async function initRuntimeSettings() {
+  const settings = await import("./api").then((m) => m.loadSettings());
+
+  const mirrorCb = document.querySelector<HTMLInputElement>("#cfg-mirror")!;
+  mirrorCb.checked = settings.mirror_enabled;
+
+  const moreBtn = document.querySelector<HTMLButtonElement>("#cfg-more-versions")!;
+  moreBtn.addEventListener("click", appendVersions);
+
+  await appendVersions();
+
+  const select = document.querySelector<HTMLSelectElement>("#cfg-version")!;
+  select.value = settings.version;
+
+  // Save button
+  const saveBtn = document.querySelector<HTMLButtonElement>("#cfg-runtime-save")!;
+  const msg = document.querySelector<HTMLSpanElement>("#cfg-runtime-msg")!;
+  saveBtn.addEventListener("click", async () => {
+    const next = await import("./api").then((m) => m.loadSettings());
+    next.mirror_enabled = mirrorCb.checked;
+    next.version = select.value;
+    await import("./api").then((m) => m.saveSettings(next));
+    msg.textContent = "已保存";
+    setTimeout(() => (msg.textContent = ""), 2000);
+  });
+}
 
 async function main() {
   await initSettings();
   renderSettings(document.querySelector<HTMLElement>("#settings")!, refresh);
+  await initRuntimeSettings();
   initLogPanel(document.querySelector<HTMLElement>("#log-body")!);
   await refresh();
-  // light polling so running/stopped reflects without manual refresh
   window.setInterval(() => {
     if (!busy) refresh();
   }, 5000);

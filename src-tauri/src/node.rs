@@ -59,46 +59,12 @@ fn which_node() -> String {
 
 /// Install Node 22 LTS system-wide (elevated).
 pub fn provision_node() -> Result<(), String> {
-    #[cfg(feature = "offline")]
-    {
-        provision_node_offline()
-    }
-    #[cfg(not(feature = "offline"))]
-    {
-        provision_node_online()
-    }
-}
-
-#[cfg(not(feature = "offline"))]
-fn provision_node_online() -> Result<(), String> {
     let ver = latest_node22()?;
     let (filename, is_zip) = node_asset_name(&ver);
     let url = format!("https://nodejs.org/dist/{ver}/{filename}");
     let tmp = env::temp_dir().join(&filename);
     download(&url, &tmp)?;
     extract_node_archive(&tmp, is_zip)
-}
-
-#[cfg(feature = "offline")]
-fn provision_node_offline() -> Result<(), String> {
-    let bytes = embedded_node_bytes();
-    let is_zip = cfg!(target_os = "windows");
-    let ext = if is_zip { "zip" } else { "tar.gz" };
-    let tmp = env::temp_dir().join(format!("node-asset-offline.{ext}"));
-    fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
-    extract_node_archive(&tmp, is_zip)
-}
-
-#[cfg(feature = "offline")]
-fn embedded_node_bytes() -> &'static [u8] {
-    #[cfg(target_os = "windows")]
-    {
-        include_bytes!("../resources/node-asset.zip")
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        include_bytes!("../resources/node-asset.tar.gz")
-    }
 }
 
 /// Returns (asset filename for the current target, is_windows_zip).

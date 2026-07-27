@@ -14,18 +14,13 @@ pub fn provision_node() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn install_pkg() -> Result<(), String> {
-    pkg::install_pkg()
+pub fn clean_data() -> Result<(), String> {
+    pkg::clean_data()
 }
 
 #[tauri::command]
-pub fn uninstall_pkg(keep_data: bool) -> Result<(), String> {
-    pkg::uninstall_pkg(keep_data)
-}
-
-#[tauri::command]
-pub fn upgrade_pkg() -> Result<(), String> {
-    pkg::upgrade_pkg()
+pub fn list_versions(offset: usize, limit: usize) -> Result<Vec<String>, String> {
+    pkg::list_versions(offset, limit)
 }
 
 #[tauri::command]

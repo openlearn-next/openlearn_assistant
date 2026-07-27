@@ -5,6 +5,20 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.14] - 2026-07-27
+
+### Changed
+- 启动方式改为本地缓存 + `node` 直接运行，不再依赖 `npx`，避免 `workspace:*` 协议报错
+- 首次启动时自动下载 tarball、补丁 workspace 依赖、本地安装，后续从缓存读取
+
+### Added
+- 运行时设置卡片：镜像开关（默认使用 npmmirror.com）、版本选择器（latest + 分页加载）
+- 镜像同时控制 `npm pack` 和 `npm install` 的 registry
+
+### Removed
+- 不再支持 offline 变体（`feature = "offline"`），CI 构建矩阵从 8 个 job 减为 4 个
+- 移除安装/卸载/升级操作，改为「清除数据」按钮直接删除用户目录
+
 ## [0.1.5] - 2026-07-27
 
 ### Fixed
@@ -50,6 +64,7 @@
 - 实时日志面板
 - 在线版与离线版两种发布变体
 
+[0.1.14]: https://github.com/openlearn-next/openlearn_assistant/compare/v0.1.13...v0.1.14
 [0.1.5]: https://github.com/openlearn-next/openlearn_assistant/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/openlearn-next/openlearn_assistant/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/openlearn-next/openlearn_assistant/compare/v0.1.2...v0.1.3

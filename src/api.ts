@@ -19,14 +19,15 @@ export interface Settings {
   port: number;
   db_path: string;
   gemini_api_key: string;
+  mirror_enabled: boolean;
+  version: string;
 }
 
 export const detectNode = () => invoke<NodeInfo>("detect_node");
 export const provisionNode = () => invoke<void>("provision_node");
-export const installPkg = () => invoke<void>("install_pkg");
-export const uninstallPkg = (keepData: boolean) =>
-  invoke<void>("uninstall_pkg", { keep_data: keepData });
-export const upgradePkg = () => invoke<void>("upgrade_pkg");
+export const cleanData = () => invoke<void>("clean_data");
+export const listVersions = (offset: number, limit: number) =>
+  invoke<string[]>("list_versions", { offset, limit });
 export const startService = () => invoke<void>("start_service");
 export const stopService = () => invoke<void>("stop_service");
 export const getStatus = () => invoke<Status>("status");
