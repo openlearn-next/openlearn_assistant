@@ -44,7 +44,6 @@ function ansiToHtml(text: string): string {
     const codes = match[1].split(";").map(Number);
 
     if (codes.includes(0)) {
-      // Reset: close all open tags
       for (let i = openTags.length - 1; i >= 0; i--) {
         parts.push(openTags[i].replace("<span", "</span").replace(/>.*/, ">"));
       }
@@ -67,7 +66,6 @@ function ansiToHtml(text: string): string {
     parts.push(html.slice(last));
   }
 
-  // Close any remaining open tags
   for (let i = openTags.length - 1; i >= 0; i--) {
     parts.push(openTags[i].replace("<span", "</span").replace(/>.*/, ">"));
   }
@@ -75,20 +73,28 @@ function ansiToHtml(text: string): string {
   return parts.join("");
 }
 
-export function initLogPanel(container: HTMLElement, refreshBtn: HTMLElement) {
+export function initLogPanel(container: HTMLElement) {
   container.innerHTML = `
+    <h2>日志</h2>
     <div class="log-actions">
+      <button id="log-refresh" class="btn small">刷新</button>
       <button id="log-copy" class="btn small">复制</button>
+      <button id="log-clear" class="btn small">清除</button>
     </div>
     <pre id="log-text" class="log"></pre>
   `;
+
   const text = container.querySelector<HTMLPreElement>("#log-text")!;
+  const refreshBtn = container.querySelector<HTMLButtonElement>("#log-refresh")!;
   const copyBtn = container.querySelector<HTMLButtonElement>("#log-copy")!;
+  const clearBtn = container.querySelector<HTMLButtonElement>("#log-clear")!;
 
   const refresh = async () => {
     const raw = await getLogs(300);
     text.innerHTML = ansiToHtml(raw);
   };
+
+  refreshBtn.addEventListener("click", refresh);
 
   copyBtn.addEventListener("click", async () => {
     const raw = text.textContent ?? "";
@@ -97,9 +103,11 @@ export function initLogPanel(container: HTMLElement, refreshBtn: HTMLElement) {
     setTimeout(() => (copyBtn.textContent = "复制"), 1500);
   });
 
-  refreshBtn.addEventListener("click", refresh);
-  refresh();
+  clearBtn.addEventListener("click", () => {
+    text.innerHTML = "";
+  });
 
+  refresh();
   timer = window.setInterval(refresh, 2000);
 }
 

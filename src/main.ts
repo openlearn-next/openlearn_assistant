@@ -42,7 +42,7 @@ app.innerHTML = `
   <section class="card" id="settings"></section>
 
   <section class="card">
-    <div class="log-head"><h2>日志</h2><button id="log-refresh" class="btn small">刷新</button></div>
+    
     <div id="log-body"></div>
   </section>
 
@@ -132,14 +132,10 @@ function updateUI(node: NodeInfo, st: Status) {
   el.btnStop.disabled = !st.running;
 }
 
-let nodeCache: NodeInfo | null = null;
-let statusCache: Status | null = null;
 
 async function refresh() {
   try {
     const [node, st] = await Promise.all([detectNode(), getStatus()]);
-    nodeCache = node;
-    statusCache = st;
     updateUI(node, st);
   } catch (e) {
     toast(`状态刷新失败：${(e as Error).message ?? e}`, "err");
@@ -163,10 +159,7 @@ el.btnStop.addEventListener("click", () => run("停止", stopService));
 async function main() {
   await initSettings();
   renderSettings(document.querySelector<HTMLElement>("#settings")!, refresh);
-  initLogPanel(
-    document.querySelector<HTMLElement>("#log-body")!,
-    document.querySelector<HTMLElement>("#log-refresh")!
-  );
+  initLogPanel(document.querySelector<HTMLElement>("#log-body")!);
   await refresh();
   // light polling so running/stopped reflects without manual refresh
   window.setInterval(() => {

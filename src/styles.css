@@ -187,9 +187,10 @@ h2 {
 
 .log-actions {
   display: flex;
-  justify-content: flex-end;
+  gap: 6px;
   margin-bottom: 6px;
 }
+
 .log-actions .btn {
   padding: 4px 10px;
   font-size: 12px;

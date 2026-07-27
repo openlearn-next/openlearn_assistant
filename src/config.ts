@@ -30,6 +30,7 @@ export function renderSettings(container: HTMLElement, onSaved?: () => void) {
       const next: Settings = {
         port: parseInt(port.value, 10) || 9000,
         db_path: db.value.trim(),
+        gemini_api_key: "",
       };
       await saveSettings(next);
       current = next;
