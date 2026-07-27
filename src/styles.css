@@ -184,3 +184,13 @@ h2 {
   font-size: 15px;
   margin-top: 0;
 }
+
+.log-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+.log-actions .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}

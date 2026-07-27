@@ -60,15 +60,15 @@ pub fn installed_version() -> Option<String> {
 pub fn install_pkg() -> Result<(), String> {
     #[cfg(feature = "offline")]
     {
-        let tmp = write_embedded_openlearn()?;
-        let dir = extract_and_patch(&tmp)?;
-        run_pm_install_from_dir(&dir)
+        let tgz = write_embedded_openlearn()?;
+        let (_, repacked) = extract_patch_repack(&tgz)?;
+        run_pm_install_tarball(&repacked)
     }
     #[cfg(not(feature = "offline"))]
     {
-        let tmp = download_openlearn_tarball()?;
-        let dir = extract_and_patch(&tmp)?;
-        run_pm_install_from_dir(&dir)
+        let tgz = download_openlearn_tarball()?;
+        let (_, repacked) = extract_patch_repack(&tgz)?;
+        run_pm_install_tarball(&repacked)
     }
 }
 
@@ -84,9 +84,9 @@ pub fn uninstall_pkg(keep_data: bool) -> Result<(), String> {
 
 pub fn upgrade_pkg() -> Result<(), String> {
     let _ = service::stop_service();
-    let tmp = download_openlearn_tarball()?;
-    let dir = extract_and_patch(&tmp)?;
-    run_pm_install_from_dir(&dir)?;
+    let tgz = download_openlearn_tarball()?;
+    let (_, repacked) = extract_patch_repack(&tgz)?;
+    run_pm_install_tarball(&repacked)?;
     service::start_service()?;
     Ok(())
 }
@@ -106,28 +106,18 @@ fn download_openlearn_tarball() -> Result<PathBuf, String> {
         return Err(format!("npm pack 退出码: {}", status.code().unwrap_or(-1)));
     }
 
-    let tgz = fs::read_dir(&tmpdir)
-        .map_err(|e| e.to_string())?
-        .filter_map(|e| e.ok())
-        .find(|e| {
-            e.file_name()
-                .to_string_lossy()
-                .starts_with("openlearn-next-")
-                && e.file_name().to_string_lossy().ends_with(".tgz")
-        })
-        .map(|e| e.path())
-        .ok_or("找不到 openlearn-next tarball")?;
-
-    Ok(tgz)
+    find_tarball(&tmpdir)
 }
 
-/// Extract tarball and fix `workspace:*` dependencies in package.json.
-fn extract_and_patch(tarball: &PathBuf) -> Result<PathBuf, String> {
-    let extract_dir = tarball
+/// Extract tarball, patch workspace:* deps, repack into a clean tarball.
+/// Returns (extracted_dir, repacked_tarball_path).
+fn extract_patch_repack(tarball: &PathBuf) -> Result<(PathBuf, PathBuf), String> {
+    let workdir = tarball
         .parent()
         .unwrap_or_else(|| std::path::Path::new("/tmp"))
-        .join("package");
+        .to_path_buf();
 
+    let extract_dir = workdir.join("package");
     let _ = fs::remove_dir_all(&extract_dir);
     fs::create_dir_all(&extract_dir).map_err(|e| e.to_string())?;
 
@@ -139,12 +129,40 @@ fn extract_and_patch(tarball: &PathBuf) -> Result<PathBuf, String> {
         return Err(format!("解压退出码: {}", status.code().unwrap_or(-1)));
     }
 
+    // Patch package.json
     let pkg_json_path = extract_dir.join("package.json");
     let raw = fs::read_to_string(&pkg_json_path).map_err(|e| e.to_string())?;
     let patched = resolve_workspace_deps(&raw)?;
     fs::write(&pkg_json_path, patched).map_err(|e| e.to_string())?;
 
-    Ok(extract_dir)
+    // Repack into a clean tarball
+    let repack_dir = workdir.join("repack");
+    let _ = fs::remove_dir_all(&repack_dir);
+    fs::create_dir_all(&repack_dir).map_err(|e| e.to_string())?;
+
+    let status = Command::new("npm")
+        .args(["pack", &extract_dir.to_string_lossy(), "--pack-destination"])
+        .arg(&repack_dir)
+        .status()
+        .map_err(|e| format!("repack 失败: {e}"))?;
+    if !status.success() {
+        return Err(format!("repack 退出码: {}", status.code().unwrap_or(-1)));
+    }
+
+    let repacked_tgz = find_tarball(&repack_dir)?;
+    Ok((extract_dir, repacked_tgz))
+}
+
+fn find_tarball(dir: &PathBuf) -> Result<PathBuf, String> {
+    fs::read_dir(dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok())
+        .find(|e| {
+            e.file_name().to_string_lossy().starts_with("openlearn-next-")
+                && e.file_name().to_string_lossy().ends_with(".tgz")
+        })
+        .map(|e| e.path())
+        .ok_or("找不到 openlearn-next tarball".into())
 }
 
 /// Replace all `workspace:*` dependency values with actual versions from npm.
@@ -182,11 +200,12 @@ fn lookup_npm_version(pkg: &str) -> Result<String, String> {
     Ok("*".to_string())
 }
 
-fn run_pm_install_from_dir(dir: &PathBuf) -> Result<(), String> {
+/// Install from a tarball (picks up all dependencies).
+fn run_pm_install_tarball(tgz: &PathBuf) -> Result<(), String> {
     let pm = pkg_manager();
     let mut cmd = pm_cmd(if pm == "pnpm" { "add" } else { "install" });
     cmd.arg("-g");
-    cmd.arg(dir);
+    cmd.arg(tgz);
     let status = cmd.status().map_err(|e| format!("安装失败: {e}"))?;
     if status.success() {
         Ok(())
