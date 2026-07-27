@@ -1,4 +1,3 @@
-use crate::elevate;
 use crate::service;
 use crate::settings;
 use std::env;
@@ -6,9 +5,21 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-/// Path of the global `npm bin` directory (where the `openlearn-next` shim lives).
+/// User-local npm prefix so install/uninstall/upgrade never need root.
+fn npm_user_prefix() -> String {
+    let home = settings::home_dir();
+    home.join(".local").to_string_lossy().into_owned()
+}
+
+/// Path of the user-local npm `bin` directory.
 pub fn npm_global_bin() -> Option<String> {
-    let out = Command::new("npm").args(["bin", "-g"]).output().ok()?;
+    let prefix = npm_user_prefix();
+    let out = Command::new("npm")
+        .arg("--prefix")
+        .arg(&prefix)
+        .args(["bin", "-g"])
+        .output()
+        .ok()?;
     if out.status.success() {
         Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
     } else {
@@ -18,7 +29,10 @@ pub fn npm_global_bin() -> Option<String> {
 
 /// Currently installed `openlearn-next` version, if any.
 pub fn installed_version() -> Option<String> {
+    let prefix = npm_user_prefix();
     let out = Command::new("npm")
+        .arg("--prefix")
+        .arg(&prefix)
         .args(["ls", "-g", "openlearn-next", "--depth=0"])
         .output()
         .ok()?;
@@ -39,16 +53,16 @@ pub fn install_pkg() -> Result<(), String> {
     #[cfg(feature = "offline")]
     {
         let tmp = write_embedded_openlearn()?;
-        elevate::run_elevated(&format!("npm install -g '{}'", tmp.display()))
+        run_npm(&["install", "-g", &tmp.display().to_string()])
     }
     #[cfg(not(feature = "offline"))]
     {
-        elevate::run_elevated("npm install -g openlearn-next")
+        run_npm(&["install", "-g", "openlearn-next"])
     }
 }
 
 pub fn uninstall_pkg(keep_data: bool) -> Result<(), String> {
-    elevate::run_elevated("npm uninstall -g openlearn-next")?;
+    run_npm(&["uninstall", "-g", "openlearn-next"])?;
     if !keep_data {
         let dir = settings::home_dir().join("openlearn-next");
         let _ = fs::remove_dir_all(&dir);
@@ -58,11 +72,25 @@ pub fn uninstall_pkg(keep_data: bool) -> Result<(), String> {
 }
 
 pub fn upgrade_pkg() -> Result<(), String> {
-    // stop if running, update, then start again
     let _ = service::stop_service();
-    elevate::run_elevated("npm update -g openlearn-next")?;
+    run_npm(&["update", "-g", "openlearn-next"])?;
     service::start_service()?;
     Ok(())
+}
+
+fn run_npm(args: &[&str]) -> Result<(), String> {
+    let prefix = npm_user_prefix();
+    let status = Command::new("npm")
+        .arg("--prefix")
+        .arg(&prefix)
+        .args(args)
+        .status()
+        .map_err(|e| format!("npm 命令失败: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("npm 命令退出码: {}", status.code().unwrap_or(-1)))
+    }
 }
 
 #[cfg(feature = "offline")]

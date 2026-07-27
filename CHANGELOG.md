@@ -5,6 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.4] - 2026-07-27
+
+### Changed
+- npm 操作改为用户级安装（`~/.local` 前缀），不再需要 root 权限，消除 PolKit 认证弹窗
+- 仅 Node.js 系统安装保留提权机制
+
 ## [0.1.3] - 2026-07-27
 
 ### Fixed
@@ -38,6 +44,7 @@
 - 实时日志面板
 - 在线版与离线版两种发布变体
 
+[0.1.4]: https://github.com/openlearn-next/openlearn_assistant/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/openlearn-next/openlearn_assistant/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/openlearn-next/openlearn_assistant/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/openlearn-next/openlearn_assistant/compare/v0.1.0...v0.1.1
