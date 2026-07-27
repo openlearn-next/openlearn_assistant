@@ -5,6 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.5] - 2026-07-27
+
+### Fixed
+- npm 安装 `workspace:*` 协议报错：优先使用 pnpm（原生支持 workspace 协议），npm 作为 fallback
+- 清理 unused import 警告
+
 ## [0.1.4] - 2026-07-27
 
 ### Changed
@@ -44,6 +50,7 @@
 - 实时日志面板
 - 在线版与离线版两种发布变体
 
+[0.1.5]: https://github.com/openlearn-next/openlearn_assistant/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/openlearn-next/openlearn_assistant/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/openlearn-next/openlearn_assistant/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/openlearn-next/openlearn_assistant/compare/v0.1.1...v0.1.2
