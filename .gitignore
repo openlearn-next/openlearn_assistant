@@ -1,0 +1,14 @@
+# 依赖 / 构建产物
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+
+# offline 变体内嵌资源（由 scripts/fetch-offline-assets.sh 生成，体积大）
+src-tauri/resources/
+
+# 日志
+*.log
+
+# 系统文件
+.DS_Store

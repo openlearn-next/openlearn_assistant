@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "OpenLearnNext Assistant",
+  "version": "0.1.0",
+  "identifier": "com.openlearn.assistant",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "OpenLearn-Next 助手",
+        "width": 880,
+        "height": 720,
+        "minWidth": 720,
+        "minHeight": 560,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png"],
+    "category": "Education",
+    "shortDescription": "OpenLearn-Next 管理助手",
+    "longDescription": "跨平台 GUI 助手，用于安装、卸载、升级、启动与停止 openlearn-next 教学平台。"
+  }
+}

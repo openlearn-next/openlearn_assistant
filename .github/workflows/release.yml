@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04,     platform: linux,   arch: x86_64,  variant: online }
+          - { os: ubuntu-24.04,     platform: linux,   arch: x86_64,  variant: offline }
+          - { os: ubuntu-24.04-arm, platform: linux,   arch: aarch64, variant: online }
+          - { os: ubuntu-24.04-arm, platform: linux,   arch: aarch64, variant: offline }
+          - { os: macos-14,         platform: macos,   arch: aarch64, variant: online }
+          - { os: macos-14,         platform: macos,   arch: aarch64, variant: offline }
+          - { os: windows-2022,     platform: windows, arch: x86_64,  variant: online }
+          - { os: windows-2022,     platform: windows, arch: x86_64,  variant: offline }
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add macOS universal Rust targets
+        if: matrix.platform == 'macos'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential \
+            curl wget file libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Fetch offline assets
+        if: matrix.variant == 'offline'
+        shell: bash
+        run: ./scripts/fetch-offline-assets.sh ${{ matrix.platform }} ${{ matrix.arch }}
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build (online)
+        if: matrix.variant == 'online'
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = "macos" ]; then
+            npm run tauri -- build --target universal-apple-darwin
+          else
+            npm run tauri -- build
+          fi
+
+      - name: Build (offline)
+        if: matrix.variant == 'offline'
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = "macos" ]; then
+            npm run tauri -- build --target universal-apple-darwin --features offline
+          else
+            npm run tauri -- build --features offline
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: assistant-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.variant }}
+          path: |
+            src-tauri/target/release/bundle/**/*
+          if-no-files-found: ignore
